@@ -1,0 +1,293 @@
+   1               		.file	"main.c"
+   2               	__SP_H__ = 0x3e
+   3               	__SP_L__ = 0x3d
+   4               	__SREG__ = 0x3f
+   5               	__tmp_reg__ = 0
+   6               	__zero_reg__ = 1
+   9               		.text
+  10               	.Ltext0:
+  12               		.section	.rodata.str1.1,"aMS",@progbits,1
+  13               	.LC0:
+  14 0000 4461 7465 		.string	"Date: %s, %d %s %d %02d:%02d:%02d\n"
+  14      3A20 2573 
+  14      2C20 2564 
+  14      2025 7320 
+  14      2564 2025 
+  15               		.section	.text.startup,"ax",@progbits
+  18               	.global	main
+  20               	main:
+   1:main.c        **** #include <stdio.h>
+   2:main.c        **** #include <avr/io.h>
+   3:main.c        **** #include <avr/interrupt.h>
+   4:main.c        **** #include <util/delay.h>
+   5:main.c        **** #include "twi.h"
+   6:main.c        **** #include "ds3231.h"
+   7:main.c        **** 
+   8:main.c        **** char *days[] = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+   9:main.c        **** char *months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+  10:main.c        **** 	"Aug", "Sep", "Oct", "Nov", "Dec" };
+  11:main.c        **** 
+  12:main.c        **** int main(void)
+  13:main.c        **** {
+  22               	.LM0:
+  23               	.LFBB1:
+  24 0000 CDB7      		in r28,__SP_L__
+  25 0002 DEB7      		in r29,__SP_H__
+  26 0004 C856      		subi r28,104
+  27 0006 D109      		sbc r29,__zero_reg__
+  28 0008 0FB6      		in __tmp_reg__,__SREG__
+  29 000a F894      		cli
+  30 000c DEBF      		out __SP_H__,r29
+  31 000e 0FBE      		out __SREG__,__tmp_reg__
+  32 0010 CDBF      		out __SP_L__,r28
+  33               	/* prologue: function */
+  34               	/* frame size = 104 */
+  35               	/* stack size = 104 */
+  36               	.L__stack_usage = 104
+  14:main.c        **** 	uint8_t old_sec = 0;
+  15:main.c        **** 	char buf[96];
+  16:main.c        **** 	DateTime dt;
+  17:main.c        **** 	twi_init();
+  38               	.LM1:
+  39 0012 0E94 0000 		call twi_init
+  18:main.c        **** 	dt.year = 2019;
+  41               	.LM2:
+  42 0016 83EE      		ldi r24,lo8(-29)
+  43 0018 97E0      		ldi r25,lo8(7)
+  44 001a A996      		adiw r28,103-62
+  45 001c 9FAF      		std Y+63,r25
+  46 001e 8EAF      		std Y+62,r24
+  47 0020 A997      		sbiw r28,103-62
+  19:main.c        **** 	dt.mon = 5;
+  49               	.LM3:
+  50 0022 85E0      		ldi r24,lo8(5)
+  51 0024 A696      		adiw r28,101-63
+  52 0026 8FAF      		std Y+63,r24
+  53 0028 A697      		sbiw r28,101-63
+  20:main.c        **** 	dt.mday = 15;
+  55               	.LM4:
+  56 002a 8FE0      		ldi r24,lo8(15)
+  57 002c A596      		adiw r28,100-63
+  58 002e 8FAF      		std Y+63,r24
+  59 0030 A597      		sbiw r28,100-63
+  21:main.c        **** 	dt.hour = 2;
+  61               	.LM5:
+  62 0032 82E0      		ldi r24,lo8(2)
+  63 0034 A496      		adiw r28,99-63
+  64 0036 8FAF      		std Y+63,r24
+  65 0038 A497      		sbiw r28,99-63
+  22:main.c        **** 	dt.min = 54;
+  67               	.LM6:
+  68 003a 86E3      		ldi r24,lo8(54)
+  69 003c A396      		adiw r28,98-63
+  70 003e 8FAF      		std Y+63,r24
+  71 0040 A397      		sbiw r28,98-63
+  23:main.c        **** 	dt.sec = 0;
+  73               	.LM7:
+  74 0042 A296      		adiw r28,97-63
+  75 0044 1FAE      		std Y+63,__zero_reg__
+  76 0046 A297      		sbiw r28,97-63
+  24:main.c        **** 	dt.wday = 3;
+  78               	.LM8:
+  79 0048 83E0      		ldi r24,lo8(3)
+  80 004a A796      		adiw r28,102-63
+  81 004c 8FAF      		std Y+63,r24
+  82 004e A797      		sbiw r28,102-63
+  25:main.c        **** 	rtc_set_datetime(&dt);
+  84               	.LM9:
+  85 0050 CE01      		movw r24,r28
+  86 0052 8F59      		subi r24,-97
+  87 0054 9F4F      		sbci r25,-1
+  88 0056 0E94 0000 		call rtc_set_datetime
+  14:main.c        **** 	char buf[96];
+  90               	.LM10:
+  91 005a C12C      		mov r12,__zero_reg__
+  26:main.c        **** 	for(;;)
+  27:main.c        **** 	{
+  28:main.c        **** 		rtc_get_datetime(&dt);
+  29:main.c        **** 		if(dt.sec != old_sec)
+  30:main.c        **** 		{
+  31:main.c        **** 			old_sec = dt.sec;
+  32:main.c        **** 			sprintf(buf, "Date: %s, %d %s %d %02d:%02d:%02d\n",
+  93               	.LM11:
+  94 005c 00E0      		ldi r16,lo8(.LC0)
+  95 005e 10E0      		ldi r17,hi8(.LC0)
+  96 0060 CE01      		movw r24,r28
+  97 0062 0196      		adiw r24,1
+  98 0064 7C01      		movw r14,r24
+  99               	.L2:
+  28:main.c        **** 		if(dt.sec != old_sec)
+ 101               	.LM12:
+ 102 0066 CE01      		movw r24,r28
+ 103 0068 8F59      		subi r24,-97
+ 104 006a 9F4F      		sbci r25,-1
+ 105 006c 0E94 0000 		call rtc_get_datetime
+  29:main.c        **** 		{
+ 107               	.LM13:
+ 108 0070 A296      		adiw r28,97-63
+ 109 0072 DFAC      		ldd r13,Y+63
+ 110 0074 A297      		sbiw r28,97-63
+  29:main.c        **** 		{
+ 112               	.LM14:
+ 113 0076 DC14      		cp r13,r12
+ 114 0078 01F0      		breq .L2
+ 116               	.LM15:
+ 117 007a 1F92      		push __zero_reg__
+ 118 007c DF92      		push r13
+ 119 007e A396      		adiw r28,98-63
+ 120 0080 8FAD      		ldd r24,Y+63
+ 121 0082 A397      		sbiw r28,98-63
+ 122 0084 1F92      		push __zero_reg__
+ 123 0086 8F93      		push r24
+ 124 0088 A496      		adiw r28,99-63
+ 125 008a 8FAD      		ldd r24,Y+63
+ 126 008c A497      		sbiw r28,99-63
+ 127 008e 1F92      		push __zero_reg__
+ 128 0090 8F93      		push r24
+ 129 0092 A996      		adiw r28,104-63
+ 130 0094 8FAD      		ldd r24,Y+63
+ 131 0096 A997      		sbiw r28,104-63
+ 132 0098 8F93      		push r24
+ 133 009a A896      		adiw r28,103-63
+ 134 009c 8FAD      		ldd r24,Y+63
+ 135 009e A897      		sbiw r28,103-63
+ 136 00a0 8F93      		push r24
+  33:main.c        **** 				days[dt.wday - 1], dt.mday, months[dt.mon - 1], dt.year,
+ 138               	.LM16:
+ 139 00a2 A696      		adiw r28,101-63
+ 140 00a4 EFAD      		ldd r30,Y+63
+ 141 00a6 A697      		sbiw r28,101-63
+  32:main.c        **** 				days[dt.wday - 1], dt.mday, months[dt.mon - 1], dt.year,
+ 143               	.LM17:
+ 144 00a8 E150      		subi r30,1
+ 145 00aa FF0B      		sbc r31,r31
+ 146 00ac EE0F      		lsl r30
+ 147 00ae FF1F      		rol r31
+ 148 00b0 E050      		subi r30,lo8(-(months))
+ 149 00b2 F040      		sbci r31,hi8(-(months))
+ 150 00b4 8181      		ldd r24,Z+1
+ 151 00b6 8F93      		push r24
+ 152 00b8 8081      		ld r24,Z
+ 153 00ba 8F93      		push r24
+ 154 00bc A596      		adiw r28,100-63
+ 155 00be 8FAD      		ldd r24,Y+63
+ 156 00c0 A597      		sbiw r28,100-63
+ 157 00c2 1F92      		push __zero_reg__
+ 158 00c4 8F93      		push r24
+ 160               	.LM18:
+ 161 00c6 A796      		adiw r28,102-63
+ 162 00c8 EFAD      		ldd r30,Y+63
+ 163 00ca A797      		sbiw r28,102-63
+  32:main.c        **** 				days[dt.wday - 1], dt.mday, months[dt.mon - 1], dt.year,
+ 165               	.LM19:
+ 166 00cc E150      		subi r30,1
+ 167 00ce FF0B      		sbc r31,r31
+ 168 00d0 EE0F      		lsl r30
+ 169 00d2 FF1F      		rol r31
+ 170 00d4 E050      		subi r30,lo8(-(days))
+ 171 00d6 F040      		sbci r31,hi8(-(days))
+ 172 00d8 8181      		ldd r24,Z+1
+ 173 00da 8F93      		push r24
+ 174 00dc 8081      		ld r24,Z
+ 175 00de 8F93      		push r24
+ 176 00e0 1F93      		push r17
+ 177 00e2 0F93      		push r16
+ 178 00e4 FF92      		push r15
+ 179 00e6 EF92      		push r14
+ 180 00e8 0E94 0000 		call sprintf
+ 181 00ec 0FB6      		in __tmp_reg__,__SREG__
+ 182 00ee F894      		cli
+ 183 00f0 DEBF      		out __SP_H__,r29
+ 184 00f2 0FBE      		out __SREG__,__tmp_reg__
+ 185 00f4 CDBF      		out __SP_L__,r28
+  29:main.c        **** 		{
+ 187               	.LM20:
+ 188 00f6 CD2C      		mov r12,r13
+ 189 00f8 00C0      		rjmp .L2
+ 202               	.Lscope1:
+ 204               	.global	months
+ 205               		.section	.rodata.str1.1
+ 206               	.LC1:
+ 207 0023 4A61 6E00 		.string	"Jan"
+ 208               	.LC2:
+ 209 0027 4665 6200 		.string	"Feb"
+ 210               	.LC3:
+ 211 002b 4D61 7200 		.string	"Mar"
+ 212               	.LC4:
+ 213 002f 4170 7200 		.string	"Apr"
+ 214               	.LC5:
+ 215 0033 4D61 7900 		.string	"May"
+ 216               	.LC6:
+ 217 0037 4A75 6E00 		.string	"Jun"
+ 218               	.LC7:
+ 219 003b 4A75 6C00 		.string	"Jul"
+ 220               	.LC8:
+ 221 003f 4175 6700 		.string	"Aug"
+ 222               	.LC9:
+ 223 0043 5365 7000 		.string	"Sep"
+ 224               	.LC10:
+ 225 0047 4F63 7400 		.string	"Oct"
+ 226               	.LC11:
+ 227 004b 4E6F 7600 		.string	"Nov"
+ 228               	.LC12:
+ 229 004f 4465 6300 		.string	"Dec"
+ 230               		.data
+ 233               	months:
+ 234 0000 0000      		.word	.LC1
+ 235 0002 0000      		.word	.LC2
+ 236 0004 0000      		.word	.LC3
+ 237 0006 0000      		.word	.LC4
+ 238 0008 0000      		.word	.LC5
+ 239 000a 0000      		.word	.LC6
+ 240 000c 0000      		.word	.LC7
+ 241 000e 0000      		.word	.LC8
+ 242 0010 0000      		.word	.LC9
+ 243 0012 0000      		.word	.LC10
+ 244 0014 0000      		.word	.LC11
+ 245 0016 0000      		.word	.LC12
+ 247               	.global	days
+ 248               		.section	.rodata.str1.1
+ 249               	.LC13:
+ 250 0053 4D6F 6E00 		.string	"Mon"
+ 251               	.LC14:
+ 252 0057 5475 6500 		.string	"Tue"
+ 253               	.LC15:
+ 254 005b 5765 6400 		.string	"Wed"
+ 255               	.LC16:
+ 256 005f 5468 7500 		.string	"Thu"
+ 257               	.LC17:
+ 258 0063 4672 6900 		.string	"Fri"
+ 259               	.LC18:
+ 260 0067 5361 7400 		.string	"Sat"
+ 261               	.LC19:
+ 262 006b 5375 6E00 		.string	"Sun"
+ 263               		.data
+ 266               	days:
+ 267 0018 0000      		.word	.LC13
+ 268 001a 0000      		.word	.LC14
+ 269 001c 0000      		.word	.LC15
+ 270 001e 0000      		.word	.LC16
+ 271 0020 0000      		.word	.LC17
+ 272 0022 0000      		.word	.LC18
+ 273 0024 0000      		.word	.LC19
+ 275               		.text
+ 277               	.Letext0:
+ 278               		.ident	"GCC: (GNU) 10.2.0"
+ 279               	.global __do_copy_data
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 main.c
+     /tmp/ccdyTLaH.s:2      *ABS*:000000000000003e __SP_H__
+     /tmp/ccdyTLaH.s:3      *ABS*:000000000000003d __SP_L__
+     /tmp/ccdyTLaH.s:4      *ABS*:000000000000003f __SREG__
+     /tmp/ccdyTLaH.s:5      *ABS*:0000000000000000 __tmp_reg__
+     /tmp/ccdyTLaH.s:6      *ABS*:0000000000000001 __zero_reg__
+     /tmp/ccdyTLaH.s:20     .text.startup:0000000000000000 main
+     /tmp/ccdyTLaH.s:233    .data:0000000000000000 months
+     /tmp/ccdyTLaH.s:266    .data:0000000000000018 days
+
+UNDEFINED SYMBOLS
+twi_init
+rtc_set_datetime
+rtc_get_datetime
+sprintf
+__do_copy_data

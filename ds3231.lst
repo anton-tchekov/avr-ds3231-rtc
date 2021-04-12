@@ -1,0 +1,499 @@
+   1               		.file	"ds3231.c"
+   2               	__SP_H__ = 0x3e
+   3               	__SP_L__ = 0x3d
+   4               	__SREG__ = 0x3f
+   5               	__tmp_reg__ = 0
+   6               	__zero_reg__ = 1
+   9               		.text
+  10               	.Ltext0:
+  17               	_bcd2dec:
+   1:ds3231.c      **** #include "ds3231.h"
+   2:ds3231.c      **** #include "twi.h"
+   3:ds3231.c      **** #include <avr/io.h>
+   4:ds3231.c      **** 
+   5:ds3231.c      **** #define DS3231_I2C_ADDR 0x68
+   6:ds3231.c      **** 
+   7:ds3231.c      **** static uint8_t _dec2bcd(uint8_t d)
+   8:ds3231.c      **** {
+   9:ds3231.c      **** 	return (d / 10 * 16) + (d % 10);
+  10:ds3231.c      **** }
+  11:ds3231.c      **** 
+  12:ds3231.c      **** static uint8_t _bcd2dec(uint8_t b)
+  13:ds3231.c      **** {
+  19               	.LM0:
+  20               	.LFBB1:
+  21               	/* prologue: function */
+  22               	/* frame size = 0 */
+  23               	/* stack size = 0 */
+  24               	.L__stack_usage = 0
+  14:ds3231.c      **** 	return (b / 16 * 10) + (b % 16);
+  26               	.LM1:
+  27 0000 982F      		mov r25,r24
+  28 0002 9295      		swap r25
+  29 0004 9F70      		andi r25,lo8(15)
+  31               	.LM2:
+  32 0006 8F70      		andi r24,lo8(15)
+  15:ds3231.c      **** }
+  34               	.LM3:
+  35 0008 2AE0      		ldi r18,lo8(10)
+  36 000a 929F      		mul r25,r18
+  37 000c 800D      		add r24,r0
+  38 000e 1124      		clr __zero_reg__
+  39               	/* epilogue start */
+  40 0010 0895      		ret
+  42               	.Lscope1:
+  48               	.global	rtc_get_datetime
+  50               	rtc_get_datetime:
+  16:ds3231.c      **** 
+  17:ds3231.c      **** DateTime *rtc_get_datetime(DateTime *dt)
+  18:ds3231.c      **** {
+  52               	.LM4:
+  53               	.LFBB2:
+  54 0012 CF92      		push r12
+  55 0014 DF92      		push r13
+  56 0016 EF92      		push r14
+  57 0018 FF92      		push r15
+  58 001a 0F93      		push r16
+  59 001c 1F93      		push r17
+  60 001e CF93      		push r28
+  61 0020 DF93      		push r29
+  62 0022 CDB7      		in r28,__SP_L__
+  63 0024 DEB7      		in r29,__SP_H__
+  64 0026 2997      		sbiw r28,9
+  65 0028 0FB6      		in __tmp_reg__,__SREG__
+  66 002a F894      		cli
+  67 002c DEBF      		out __SP_H__,r29
+  68 002e 0FBE      		out __SREG__,__tmp_reg__
+  69 0030 CDBF      		out __SP_L__,r28
+  70               	/* prologue: function */
+  71               	/* frame size = 9 */
+  72               	/* stack size = 17 */
+  73               	.L__stack_usage = 17
+  74 0032 8C01      		movw r16,r24
+  19:ds3231.c      **** 	uint8_t i;
+  20:ds3231.c      **** 	uint8_t rtc[9];
+  21:ds3231.c      **** 	twi_begin_transmission(DS3231_I2C_ADDR);
+  76               	.LM5:
+  77 0034 88E6      		ldi r24,lo8(104)
+  78 0036 0E94 0000 		call twi_begin_transmission
+  22:ds3231.c      **** 	twi_write(0x00);
+  80               	.LM6:
+  81 003a 80E0      		ldi r24,0
+  82 003c 0E94 0000 		call twi_write
+  23:ds3231.c      **** 	twi_end_transmission();
+  84               	.LM7:
+  85 0040 0E94 0000 		call twi_end_transmission
+  24:ds3231.c      **** 	twi_request_from(DS3231_I2C_ADDR, 7);
+  87               	.LM8:
+  88 0044 67E0      		ldi r22,lo8(7)
+  89 0046 88E6      		ldi r24,lo8(104)
+  90 0048 0E94 0000 		call twi_request_from
+  91 004c CE01      		movw r24,r28
+  92 004e 0196      		adiw r24,1
+  93 0050 7C01      		movw r14,r24
+  94 0052 6E01      		movw r12,r28
+  95 0054 98E0      		ldi r25,8
+  96 0056 C90E      		add r12,r25
+  97 0058 D11C      		adc r13,__zero_reg__
+  98               	.L3:
+  25:ds3231.c      **** 	for(i = 0; i < 7; i++) { rtc[i] = twi_read(); }
+ 100               	.LM9:
+ 101 005a 0E94 0000 		call twi_read
+ 103               	.LM10:
+ 104 005e F701      		movw r30,r14
+ 105 0060 8193      		st Z+,r24
+ 106 0062 7F01      		movw r14,r30
+ 108               	.LM11:
+ 109 0064 EC15      		cp r30,r12
+ 110 0066 FD05      		cpc r31,r13
+ 111 0068 01F4      		brne .L3
+  26:ds3231.c      **** 	twi_end_transmission();
+ 113               	.LM12:
+ 114 006a 0E94 0000 		call twi_end_transmission
+  27:ds3231.c      **** 	dt->sec = _bcd2dec(rtc[0]);
+ 116               	.LM13:
+ 117 006e 8981      		ldd r24,Y+1
+ 118 0070 0E94 0000 		call _bcd2dec
+ 120               	.LM14:
+ 121 0074 F801      		movw r30,r16
+ 122 0076 8083      		st Z,r24
+  28:ds3231.c      **** 	dt->min = _bcd2dec(rtc[1]);
+ 124               	.LM15:
+ 125 0078 8A81      		ldd r24,Y+2
+ 126 007a 0E94 0000 		call _bcd2dec
+ 128               	.LM16:
+ 129 007e F801      		movw r30,r16
+ 130 0080 8183      		std Z+1,r24
+  29:ds3231.c      **** 	dt->hour = _bcd2dec(rtc[2]);
+ 132               	.LM17:
+ 133 0082 8B81      		ldd r24,Y+3
+ 134 0084 0E94 0000 		call _bcd2dec
+ 136               	.LM18:
+ 137 0088 F801      		movw r30,r16
+ 138 008a 8283      		std Z+2,r24
+  30:ds3231.c      **** 	dt->mday = _bcd2dec(rtc[4]);
+ 140               	.LM19:
+ 141 008c 8D81      		ldd r24,Y+5
+ 142 008e 0E94 0000 		call _bcd2dec
+ 144               	.LM20:
+ 145 0092 F801      		movw r30,r16
+ 146 0094 8383      		std Z+3,r24
+  31:ds3231.c      **** 	dt->mon = _bcd2dec(rtc[5] & 0x1F);
+ 148               	.LM21:
+ 149 0096 FE80      		ldd r15,Y+6
+ 151               	.LM22:
+ 152 0098 8F2D      		mov r24,r15
+ 153 009a 8F71      		andi r24,lo8(31)
+ 154 009c 0E94 0000 		call _bcd2dec
+ 156               	.LM23:
+ 157 00a0 F801      		movw r30,r16
+ 158 00a2 8483      		std Z+4,r24
+  32:ds3231.c      **** 	dt->year = ((rtc[5] & 0x80) >> 7) == 1 ? 2000 + _bcd2dec(rtc[6]) :
+ 160               	.LM24:
+ 161 00a4 8F81      		ldd r24,Y+7
+ 162 00a6 0E94 0000 		call _bcd2dec
+ 163 00aa 90E0      		ldi r25,0
+ 165               	.LM25:
+ 166 00ac F7FE      		sbrs r15,7
+ 167 00ae 00C0      		rjmp .L4
+ 169               	.LM26:
+ 170 00b0 8053      		subi r24,48
+ 171 00b2 984F      		sbci r25,-8
+ 172               	.L5:
+ 174               	.LM27:
+ 175 00b4 F801      		movw r30,r16
+ 176 00b6 9783      		std Z+7,r25
+ 177 00b8 8683      		std Z+6,r24
+  33:ds3231.c      **** 		1900 + _bcd2dec(rtc[6]);
+  34:ds3231.c      **** 	dt->wday = _bcd2dec(rtc[3]);
+ 179               	.LM28:
+ 180 00ba 8C81      		ldd r24,Y+4
+ 181 00bc 0E94 0000 		call _bcd2dec
+ 183               	.LM29:
+ 184 00c0 F801      		movw r30,r16
+ 185 00c2 8583      		std Z+5,r24
+  35:ds3231.c      **** 	return dt;
+  36:ds3231.c      **** }
+ 187               	.LM30:
+ 188 00c4 C801      		movw r24,r16
+ 189               	/* epilogue start */
+ 190 00c6 2996      		adiw r28,9
+ 191 00c8 0FB6      		in __tmp_reg__,__SREG__
+ 192 00ca F894      		cli
+ 193 00cc DEBF      		out __SP_H__,r29
+ 194 00ce 0FBE      		out __SREG__,__tmp_reg__
+ 195 00d0 CDBF      		out __SP_L__,r28
+ 196 00d2 DF91      		pop r29
+ 197 00d4 CF91      		pop r28
+ 198 00d6 1F91      		pop r17
+ 199 00d8 0F91      		pop r16
+ 200 00da FF90      		pop r15
+ 201 00dc EF90      		pop r14
+ 202 00de DF90      		pop r13
+ 203 00e0 CF90      		pop r12
+ 204 00e2 0895      		ret
+ 205               	.L4:
+  32:ds3231.c      **** 		1900 + _bcd2dec(rtc[6]);
+ 207               	.LM31:
+ 208 00e4 8459      		subi r24,-108
+ 209 00e6 984F      		sbci r25,-8
+ 210 00e8 00C0      		rjmp .L5
+ 215               	.Lscope2:
+ 220               	.global	rtc_set_datetime
+ 222               	rtc_set_datetime:
+  37:ds3231.c      **** 
+  38:ds3231.c      **** void rtc_set_datetime(DateTime *dt)
+  39:ds3231.c      **** {
+ 224               	.LM32:
+ 225               	.LFBB3:
+ 226 00ea 0F93      		push r16
+ 227 00ec 1F93      		push r17
+ 228 00ee CF93      		push r28
+ 229 00f0 DF93      		push r29
+ 230               	/* prologue: function */
+ 231               	/* frame size = 0 */
+ 232               	/* stack size = 4 */
+ 233               	.L__stack_usage = 4
+ 234 00f2 EC01      		movw r28,r24
+  40:ds3231.c      **** 	uint8_t century;
+  41:ds3231.c      **** 	twi_begin_transmission(DS3231_I2C_ADDR);
+ 236               	.LM33:
+ 237 00f4 88E6      		ldi r24,lo8(104)
+ 238 00f6 0E94 0000 		call twi_begin_transmission
+  42:ds3231.c      **** 	twi_write(0x00);
+ 240               	.LM34:
+ 241 00fa 80E0      		ldi r24,0
+ 242 00fc 0E94 0000 		call twi_write
+  43:ds3231.c      **** 	if(dt->year > 2000)
+ 244               	.LM35:
+ 245 0100 8E81      		ldd r24,Y+6
+ 246 0102 9F81      		ldd r25,Y+7
+ 248               	.LM36:
+ 249 0104 813D      		cpi r24,-47
+ 250 0106 27E0      		ldi r18,7
+ 251 0108 9207      		cpc r25,r18
+ 252 010a 00F4      		brsh .+2
+ 253 010c 00C0      		rjmp .L8
+  44:ds3231.c      **** 	{
+  45:ds3231.c      **** 		century = 0x80;
+  46:ds3231.c      **** 		dt->year -= 2000;
+ 255               	.LM37:
+ 256 010e 805D      		subi r24,-48
+ 257 0110 9740      		sbci r25,7
+ 258 0112 9F83      		std Y+7,r25
+ 259 0114 8E83      		std Y+6,r24
+  45:ds3231.c      **** 		dt->year -= 2000;
+ 261               	.LM38:
+ 262 0116 00E8      		ldi r16,lo8(-128)
+ 263               	.L9:
+  47:ds3231.c      **** 	}
+  48:ds3231.c      **** 	else
+  49:ds3231.c      **** 	{
+  50:ds3231.c      **** 		century = 0;
+  51:ds3231.c      **** 		dt->year -= 1900;
+  52:ds3231.c      **** 	}
+  53:ds3231.c      **** 
+  54:ds3231.c      **** 	twi_write(_dec2bcd(dt->sec));
+ 265               	.LM39:
+ 266 0118 8881      		ld r24,Y
+ 267               	.LBB16:
+ 268               	.LBB17:
+   9:ds3231.c      **** }
+ 270               	.LM40:
+ 271 011a 1AE0      		ldi r17,lo8(10)
+ 272 011c 612F      		mov r22,r17
+ 273 011e 0E94 0000 		call __udivmodqi4
+ 274 0122 8295      		swap r24
+ 275 0124 807F      		andi r24,lo8(-16)
+ 276               	.LBE17:
+ 277               	.LBE16:
+ 279               	.LM41:
+ 280 0126 890F      		add r24,r25
+ 281 0128 0E94 0000 		call twi_write
+  55:ds3231.c      **** 	twi_write(_dec2bcd(dt->min));
+ 283               	.LM42:
+ 284 012c 8981      		ldd r24,Y+1
+ 285               	.LBB18:
+ 286               	.LBB19:
+   9:ds3231.c      **** }
+ 288               	.LM43:
+ 289 012e 612F      		mov r22,r17
+ 290 0130 0E94 0000 		call __udivmodqi4
+ 291 0134 8295      		swap r24
+ 292 0136 807F      		andi r24,lo8(-16)
+ 293               	.LBE19:
+ 294               	.LBE18:
+ 296               	.LM44:
+ 297 0138 890F      		add r24,r25
+ 298 013a 0E94 0000 		call twi_write
+  56:ds3231.c      **** 	twi_write(_dec2bcd(dt->hour));
+ 300               	.LM45:
+ 301 013e 8A81      		ldd r24,Y+2
+ 302               	.LBB20:
+ 303               	.LBB21:
+   9:ds3231.c      **** }
+ 305               	.LM46:
+ 306 0140 612F      		mov r22,r17
+ 307 0142 0E94 0000 		call __udivmodqi4
+ 308 0146 8295      		swap r24
+ 309 0148 807F      		andi r24,lo8(-16)
+ 310               	.LBE21:
+ 311               	.LBE20:
+ 313               	.LM47:
+ 314 014a 890F      		add r24,r25
+ 315 014c 0E94 0000 		call twi_write
+  57:ds3231.c      **** 	twi_write(_dec2bcd(dt->wday));
+ 317               	.LM48:
+ 318 0150 8D81      		ldd r24,Y+5
+ 319               	.LBB22:
+ 320               	.LBB23:
+   9:ds3231.c      **** }
+ 322               	.LM49:
+ 323 0152 612F      		mov r22,r17
+ 324 0154 0E94 0000 		call __udivmodqi4
+ 325 0158 8295      		swap r24
+ 326 015a 807F      		andi r24,lo8(-16)
+ 327               	.LBE23:
+ 328               	.LBE22:
+ 330               	.LM50:
+ 331 015c 890F      		add r24,r25
+ 332 015e 0E94 0000 		call twi_write
+  58:ds3231.c      **** 	twi_write(_dec2bcd(dt->mday));
+ 334               	.LM51:
+ 335 0162 8B81      		ldd r24,Y+3
+ 336               	.LBB24:
+ 337               	.LBB25:
+   9:ds3231.c      **** }
+ 339               	.LM52:
+ 340 0164 612F      		mov r22,r17
+ 341 0166 0E94 0000 		call __udivmodqi4
+ 342 016a 8295      		swap r24
+ 343 016c 807F      		andi r24,lo8(-16)
+ 344               	.LBE25:
+ 345               	.LBE24:
+ 347               	.LM53:
+ 348 016e 890F      		add r24,r25
+ 349 0170 0E94 0000 		call twi_write
+  59:ds3231.c      **** 	twi_write(_dec2bcd(dt->mon) + century);
+ 351               	.LM54:
+ 352 0174 8C81      		ldd r24,Y+4
+ 353               	.LBB26:
+ 354               	.LBB27:
+   9:ds3231.c      **** }
+ 356               	.LM55:
+ 357 0176 612F      		mov r22,r17
+ 358 0178 0E94 0000 		call __udivmodqi4
+ 359 017c 8295      		swap r24
+ 360 017e 807F      		andi r24,lo8(-16)
+ 361 0180 890F      		add r24,r25
+ 362               	.LBE27:
+ 363               	.LBE26:
+ 365               	.LM56:
+ 366 0182 800F      		add r24,r16
+ 367 0184 0E94 0000 		call twi_write
+  60:ds3231.c      **** 	twi_write(_dec2bcd(dt->year));
+ 369               	.LM57:
+ 370 0188 8E81      		ldd r24,Y+6
+ 371               	.LBB28:
+ 372               	.LBB29:
+   9:ds3231.c      **** }
+ 374               	.LM58:
+ 375 018a 612F      		mov r22,r17
+ 376 018c 0E94 0000 		call __udivmodqi4
+ 377 0190 8295      		swap r24
+ 378 0192 807F      		andi r24,lo8(-16)
+ 379               	.LBE29:
+ 380               	.LBE28:
+ 382               	.LM59:
+ 383 0194 890F      		add r24,r25
+ 384 0196 0E94 0000 		call twi_write
+ 385               	/* epilogue start */
+  61:ds3231.c      **** 	twi_end_transmission();
+  62:ds3231.c      **** }
+ 387               	.LM60:
+ 388 019a DF91      		pop r29
+ 389 019c CF91      		pop r28
+ 390 019e 1F91      		pop r17
+ 391 01a0 0F91      		pop r16
+  61:ds3231.c      **** 	twi_end_transmission();
+ 393               	.LM61:
+ 394 01a2 0C94 0000 		jmp twi_end_transmission
+ 395               	.L8:
+  51:ds3231.c      **** 	}
+ 397               	.LM62:
+ 398 01a6 8C56      		subi r24,108
+ 399 01a8 9740      		sbci r25,7
+ 400 01aa 9F83      		std Y+7,r25
+ 401 01ac 8E83      		std Y+6,r24
+  50:ds3231.c      **** 		dt->year -= 1900;
+ 403               	.LM63:
+ 404 01ae 00E0      		ldi r16,0
+ 405 01b0 00C0      		rjmp .L9
+ 410               	.Lscope3:
+ 417               	.global	ds3231_get_temperature
+ 419               	ds3231_get_temperature:
+  63:ds3231.c      **** 
+  64:ds3231.c      **** /* i = Integer part, f = fractional part
+  65:ds3231.c      **** Conversion to float: ((((short)msb << 8) | (short)lsb) >> 6) / 4.0f */
+  66:ds3231.c      **** void ds3231_get_temperature(int8_t *i, uint8_t *f)
+  67:ds3231.c      **** {
+ 421               	.LM64:
+ 422               	.LFBB4:
+ 423 01b2 FF92      		push r15
+ 424 01b4 0F93      		push r16
+ 425 01b6 1F93      		push r17
+ 426 01b8 CF93      		push r28
+ 427 01ba DF93      		push r29
+ 428               	/* prologue: function */
+ 429               	/* frame size = 0 */
+ 430               	/* stack size = 5 */
+ 431               	.L__stack_usage = 5
+ 432 01bc 8C01      		movw r16,r24
+ 433 01be EB01      		movw r28,r22
+  68:ds3231.c      **** 	uint8_t msb, lsb;
+  69:ds3231.c      **** 	*i = 0;
+ 435               	.LM65:
+ 436 01c0 FC01      		movw r30,r24
+ 437 01c2 1082      		st Z,__zero_reg__
+  70:ds3231.c      **** 	*f = 0;
+ 439               	.LM66:
+ 440 01c4 1882      		st Y,__zero_reg__
+  71:ds3231.c      **** 	twi_begin_transmission(DS3231_I2C_ADDR);
+ 442               	.LM67:
+ 443 01c6 88E6      		ldi r24,lo8(104)
+ 444 01c8 0E94 0000 		call twi_begin_transmission
+  72:ds3231.c      **** 	twi_write(0x11);
+ 446               	.LM68:
+ 447 01cc 81E1      		ldi r24,lo8(17)
+ 448 01ce 0E94 0000 		call twi_write
+  73:ds3231.c      **** 	twi_end_transmission();
+ 450               	.LM69:
+ 451 01d2 0E94 0000 		call twi_end_transmission
+  74:ds3231.c      **** 	twi_request_from(DS3231_I2C_ADDR, 2);
+ 453               	.LM70:
+ 454 01d6 62E0      		ldi r22,lo8(2)
+ 455 01d8 88E6      		ldi r24,lo8(104)
+ 456 01da 0E94 0000 		call twi_request_from
+  75:ds3231.c      **** 	if(twi_available())
+ 458               	.LM71:
+ 459 01de 0E94 0000 		call twi_available
+ 461               	.LM72:
+ 462 01e2 8823      		tst r24
+ 463 01e4 01F0      		breq .L10
+  76:ds3231.c      **** 	{
+  77:ds3231.c      **** 		msb = twi_read();
+ 465               	.LM73:
+ 466 01e6 0E94 0000 		call twi_read
+ 467 01ea F82E      		mov r15,r24
+  78:ds3231.c      **** 		lsb = twi_read();
+ 469               	.LM74:
+ 470 01ec 0E94 0000 		call twi_read
+  79:ds3231.c      **** 		*i = msb;
+ 472               	.LM75:
+ 473 01f0 F801      		movw r30,r16
+ 474 01f2 F082      		st Z,r15
+  80:ds3231.c      **** 		*f = (lsb >> 6) * 25;
+ 476               	.LM76:
+ 477 01f4 8295      		swap r24
+ 478 01f6 8695      		lsr r24
+ 479 01f8 8695      		lsr r24
+ 480 01fa 8370      		andi r24,lo8(3)
+ 481 01fc 99E1      		ldi r25,lo8(25)
+ 482 01fe 899F      		mul r24,r25
+ 483 0200 802D      		mov r24,r0
+ 484 0202 1124      		clr r1
+ 485 0204 8883      		st Y,r24
+ 486               	.L10:
+ 487               	/* epilogue start */
+  81:ds3231.c      **** 	}
+  82:ds3231.c      **** }
+ 489               	.LM77:
+ 490 0206 DF91      		pop r29
+ 491 0208 CF91      		pop r28
+ 492 020a 1F91      		pop r17
+ 493 020c 0F91      		pop r16
+ 494 020e FF90      		pop r15
+ 495 0210 0895      		ret
+ 500               	.Lscope4:
+ 503               	.Letext0:
+ 504               		.ident	"GCC: (GNU) 10.2.0"
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 ds3231.c
+     /tmp/ccSsmRxn.s:2      *ABS*:000000000000003e __SP_H__
+     /tmp/ccSsmRxn.s:3      *ABS*:000000000000003d __SP_L__
+     /tmp/ccSsmRxn.s:4      *ABS*:000000000000003f __SREG__
+     /tmp/ccSsmRxn.s:5      *ABS*:0000000000000000 __tmp_reg__
+     /tmp/ccSsmRxn.s:6      *ABS*:0000000000000001 __zero_reg__
+     /tmp/ccSsmRxn.s:17     .text:0000000000000000 _bcd2dec
+     /tmp/ccSsmRxn.s:50     .text:0000000000000012 rtc_get_datetime
+     /tmp/ccSsmRxn.s:222    .text:00000000000000ea rtc_set_datetime
+     /tmp/ccSsmRxn.s:419    .text:00000000000001b2 ds3231_get_temperature
+
+UNDEFINED SYMBOLS
+twi_begin_transmission
+twi_write
+twi_end_transmission
+twi_request_from
+twi_read
+__udivmodqi4
+twi_available

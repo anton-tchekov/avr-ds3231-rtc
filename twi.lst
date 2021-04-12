@@ -1,0 +1,1026 @@
+   1               		.file	"twi.c"
+   2               	__SP_H__ = 0x3e
+   3               	__SP_L__ = 0x3d
+   4               	__SREG__ = 0x3f
+   5               	__tmp_reg__ = 0
+   6               	__zero_reg__ = 1
+   9               		.text
+  10               	.Ltext0:
+  17               	twi_stop:
+   1:twi.c         **** #include "twi.h"
+   2:twi.c         **** #include <avr/io.h>
+   3:twi.c         **** #include <avr/interrupt.h>
+   4:twi.c         **** #include <compat/twi.h>
+   5:twi.c         **** 
+   6:twi.c         **** 
+   7:twi.c         **** /* Private Variables */
+   8:twi.c         **** static volatile uint8_t twi_state;
+   9:twi.c         **** static uint8_t twi_slarw;
+  10:twi.c         **** static volatile uint8_t twi_error;
+  11:twi.c         **** 
+  12:twi.c         **** static uint8_t twi_masterBuffer[TWI_BUFFER_LENGTH];
+  13:twi.c         **** static volatile uint8_t twi_masterBufferIndex;
+  14:twi.c         **** static uint8_t twi_masterBufferLength;
+  15:twi.c         **** 
+  16:twi.c         **** static uint8_t rxBuffer[TWI_BUFFER_LENGTH];
+  17:twi.c         **** static uint8_t rxBufferIndex = 0;
+  18:twi.c         **** static uint8_t rxBufferLength = 0;
+  19:twi.c         **** 
+  20:twi.c         **** static uint8_t txAddress = 0;
+  21:twi.c         **** static uint8_t txBuffer[TWI_BUFFER_LENGTH];
+  22:twi.c         **** static uint8_t txBufferIndex = 0;
+  23:twi.c         **** static uint8_t txBufferLength = 0;
+  24:twi.c         **** 
+  25:twi.c         **** 
+  26:twi.c         **** /* Private Functions */
+  27:twi.c         **** static void twi_stop(void);
+  28:twi.c         **** static void twi_release_bus(void);
+  29:twi.c         **** static uint8_t twi_read_from
+  30:twi.c         **** 	(uint8_t address, uint8_t *data, uint8_t length);
+  31:twi.c         **** static uint8_t twi_write_to
+  32:twi.c         **** 	(uint8_t address, uint8_t *data, uint8_t length, uint8_t wait);
+  33:twi.c         **** static void twi_reply_ack(void);
+  34:twi.c         **** static void twi_reply_nack(void);
+  35:twi.c         **** 
+  36:twi.c         **** 
+  37:twi.c         **** /* Public */
+  38:twi.c         **** void twi_init(void)
+  39:twi.c         **** {
+  40:twi.c         **** 	rxBufferIndex = 0;
+  41:twi.c         **** 	rxBufferLength = 0;
+  42:twi.c         **** 	txBufferIndex = 0;
+  43:twi.c         **** 	txBufferLength = 0;
+  44:twi.c         **** 
+  45:twi.c         **** 	/* Initialize state */
+  46:twi.c         **** 	twi_state = TWI_READY;
+  47:twi.c         **** 
+  48:twi.c         **** 	/* Internal pullups on TWI pins */
+  49:twi.c         **** 	PORTC |= (1 << 4);
+  50:twi.c         **** 	PORTC |= (1 << 5);
+  51:twi.c         **** 
+  52:twi.c         **** 	/* Initialize TWI prescaler and bitrate */
+  53:twi.c         **** 	TWSR &= ~TWPS0;
+  54:twi.c         **** 	TWSR &= ~TWPS1;
+  55:twi.c         **** 	TWBR = ((F_CPU / TWI_FREQ) - 16) / 2;
+  56:twi.c         **** 
+  57:twi.c         **** 	/* Enable TWI module and interrupt */
+  58:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA);
+  59:twi.c         **** }
+  60:twi.c         **** 
+  61:twi.c         **** void twi_begin_transmission(uint8_t address)
+  62:twi.c         **** {
+  63:twi.c         **** 	txAddress = address;
+  64:twi.c         **** 	txBufferIndex = 0;
+  65:twi.c         **** 	txBufferLength = 0;
+  66:twi.c         **** }
+  67:twi.c         **** 
+  68:twi.c         **** uint8_t twi_end_transmission(void)
+  69:twi.c         **** {
+  70:twi.c         **** 	int8_t ret = twi_write_to(txAddress, txBuffer, txBufferLength, 1);
+  71:twi.c         **** 	txBufferIndex = 0;
+  72:twi.c         **** 	txBufferLength = 0;
+  73:twi.c         **** 	return ret;
+  74:twi.c         **** }
+  75:twi.c         **** 
+  76:twi.c         **** uint8_t twi_request_from(uint8_t address, uint8_t quantity)
+  77:twi.c         **** {
+  78:twi.c         **** 	uint8_t read;
+  79:twi.c         **** 	if(quantity > TWI_BUFFER_LENGTH)
+  80:twi.c         **** 	{
+  81:twi.c         **** 		quantity = TWI_BUFFER_LENGTH;
+  82:twi.c         **** 	}
+  83:twi.c         **** 
+  84:twi.c         **** 	read = twi_read_from(address, rxBuffer, quantity);
+  85:twi.c         **** 	rxBufferIndex = 0;
+  86:twi.c         **** 	rxBufferLength = read;
+  87:twi.c         **** 	return read;
+  88:twi.c         **** }
+  89:twi.c         **** 
+  90:twi.c         **** void twi_write(uint8_t data)
+  91:twi.c         **** {
+  92:twi.c         **** 	if(txBufferLength >= TWI_BUFFER_LENGTH) { return; }
+  93:twi.c         **** 	txBuffer[txBufferIndex++] = data;
+  94:twi.c         **** 	txBufferLength = txBufferIndex;
+  95:twi.c         **** }
+  96:twi.c         **** 
+  97:twi.c         **** uint8_t twi_read(void)
+  98:twi.c         **** {
+  99:twi.c         **** 	return (rxBufferIndex < rxBufferLength)
+ 100:twi.c         **** 		? rxBuffer[rxBufferIndex++] : '\0';
+ 101:twi.c         **** }
+ 102:twi.c         **** 
+ 103:twi.c         **** uint8_t twi_available(void)
+ 104:twi.c         **** {
+ 105:twi.c         **** 	return rxBufferLength - rxBufferIndex;
+ 106:twi.c         **** }
+ 107:twi.c         **** 
+ 108:twi.c         **** 
+ 109:twi.c         **** /* Private */
+ 110:twi.c         **** static void twi_stop(void)
+ 111:twi.c         **** {
+  19               	.LM0:
+  20               	.LFBB1:
+  21               	/* prologue: function */
+  22               	/* frame size = 0 */
+  23               	/* stack size = 0 */
+  24               	.L__stack_usage = 0
+ 112:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA) | (1 << TWINT) |
+  26               	.LM1:
+  27 0000 85ED      		ldi r24,lo8(-43)
+  28 0002 8093 BC00 		sts 188,r24
+  29               	.L2:
+ 113:twi.c         **** 		(1 << TWSTO);
+ 114:twi.c         **** 
+ 115:twi.c         **** 	while(TWCR & _BV(TWSTO)) ;
+  31               	.LM2:
+  32 0006 8091 BC00 		lds r24,188
+  34               	.LM3:
+  35 000a 84FD      		sbrc r24,4
+  36 000c 00C0      		rjmp .L2
+ 116:twi.c         **** 	twi_state = TWI_READY;
+  38               	.LM4:
+  39 000e 1092 0000 		sts twi_state,__zero_reg__
+  40               	/* epilogue start */
+ 117:twi.c         **** }
+  42               	.LM5:
+  43 0012 0895      		ret
+  45               	.Lscope1:
+  48               	.global	twi_init
+  50               	twi_init:
+  39:twi.c         **** 	rxBufferIndex = 0;
+  52               	.LM6:
+  53               	.LFBB2:
+  54               	/* prologue: function */
+  55               	/* frame size = 0 */
+  56               	/* stack size = 0 */
+  57               	.L__stack_usage = 0
+  40:twi.c         **** 	rxBufferLength = 0;
+  59               	.LM7:
+  60 0014 1092 0000 		sts rxBufferIndex,__zero_reg__
+  41:twi.c         **** 	txBufferIndex = 0;
+  62               	.LM8:
+  63 0018 1092 0000 		sts rxBufferLength,__zero_reg__
+  42:twi.c         **** 	txBufferLength = 0;
+  65               	.LM9:
+  66 001c 1092 0000 		sts txBufferIndex,__zero_reg__
+  43:twi.c         **** 
+  68               	.LM10:
+  69 0020 1092 0000 		sts txBufferLength,__zero_reg__
+  46:twi.c         **** 
+  71               	.LM11:
+  72 0024 1092 0000 		sts twi_state,__zero_reg__
+  49:twi.c         **** 	PORTC |= (1 << 5);
+  74               	.LM12:
+  75 0028 449A      		sbi 0x8,4
+  50:twi.c         **** 
+  77               	.LM13:
+  78 002a 459A      		sbi 0x8,5
+  53:twi.c         **** 	TWSR &= ~TWPS1;
+  80               	.LM14:
+  81 002c E9EB      		ldi r30,lo8(-71)
+  82 002e F0E0      		ldi r31,0
+  83 0030 8081      		ld r24,Z
+  84 0032 8083      		st Z,r24
+  54:twi.c         **** 	TWBR = ((F_CPU / TWI_FREQ) - 16) / 2;
+  86               	.LM15:
+  87 0034 8081      		ld r24,Z
+  88 0036 8E7F      		andi r24,lo8(-2)
+  89 0038 8083      		st Z,r24
+  55:twi.c         **** 
+  91               	.LM16:
+  92 003a 88E4      		ldi r24,lo8(72)
+  93 003c 8093 B800 		sts 184,r24
+  58:twi.c         **** }
+  95               	.LM17:
+  96 0040 85E4      		ldi r24,lo8(69)
+  97 0042 8093 BC00 		sts 188,r24
+  98               	/* epilogue start */
+  59:twi.c         **** 
+ 100               	.LM18:
+ 101 0046 0895      		ret
+ 103               	.Lscope2:
+ 107               	.global	twi_begin_transmission
+ 109               	twi_begin_transmission:
+  62:twi.c         **** 	txAddress = address;
+ 111               	.LM19:
+ 112               	.LFBB3:
+ 113               	/* prologue: function */
+ 114               	/* frame size = 0 */
+ 115               	/* stack size = 0 */
+ 116               	.L__stack_usage = 0
+  63:twi.c         **** 	txBufferIndex = 0;
+ 118               	.LM20:
+ 119 0048 8093 0000 		sts txAddress,r24
+  64:twi.c         **** 	txBufferLength = 0;
+ 121               	.LM21:
+ 122 004c 1092 0000 		sts txBufferIndex,__zero_reg__
+  65:twi.c         **** }
+ 124               	.LM22:
+ 125 0050 1092 0000 		sts txBufferLength,__zero_reg__
+ 126               	/* epilogue start */
+  66:twi.c         **** 
+ 128               	.LM23:
+ 129 0054 0895      		ret
+ 131               	.Lscope3:
+ 134               	.global	twi_end_transmission
+ 136               	twi_end_transmission:
+  69:twi.c         **** 	int8_t ret = twi_write_to(txAddress, txBuffer, txBufferLength, 1);
+ 138               	.LM24:
+ 139               	.LFBB4:
+ 140               	/* prologue: function */
+ 141               	/* frame size = 0 */
+ 142               	/* stack size = 0 */
+ 143               	.L__stack_usage = 0
+  70:twi.c         **** 	txBufferIndex = 0;
+ 145               	.LM25:
+ 146 0056 9091 0000 		lds r25,txBufferLength
+ 147               	.LBB12:
+ 148               	.LBB13:
+ 118:twi.c         **** 
+ 119:twi.c         **** static void twi_release_bus(void)
+ 120:twi.c         **** {
+ 121:twi.c         **** 	TWCR = _BV(TWEN) | _BV(TWIE) | _BV(TWEA) | _BV(TWINT);
+ 122:twi.c         **** 	twi_state = TWI_READY;
+ 123:twi.c         **** }
+ 124:twi.c         **** 
+ 125:twi.c         **** static uint8_t twi_read_from
+ 126:twi.c         **** 	(uint8_t address, uint8_t *data, uint8_t length)
+ 127:twi.c         **** {
+ 128:twi.c         **** 	uint8_t i;
+ 129:twi.c         **** 
+ 130:twi.c         **** 	if(TWI_BUFFER_LENGTH < length)
+ 131:twi.c         **** 	{
+ 132:twi.c         **** 		return 0;
+ 133:twi.c         **** 	}
+ 134:twi.c         **** 
+ 135:twi.c         **** 	while(TWI_READY != twi_state) ;
+ 136:twi.c         **** 	twi_state = TWI_MRX;
+ 137:twi.c         **** 	twi_error = 0xFF;
+ 138:twi.c         **** 	twi_masterBufferIndex = 0;
+ 139:twi.c         **** 	twi_masterBufferLength = length - 1;
+ 140:twi.c         **** 	twi_slarw = TW_READ;
+ 141:twi.c         **** 	twi_slarw |= address << 1;
+ 142:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA) | (1 << TWINT) |
+ 143:twi.c         **** 		(1 << TWSTA);
+ 144:twi.c         **** 
+ 145:twi.c         **** 	while(TWI_MRX == twi_state) ;
+ 146:twi.c         **** 
+ 147:twi.c         **** 	if(twi_masterBufferIndex < length)
+ 148:twi.c         **** 	{
+ 149:twi.c         **** 		length = twi_masterBufferIndex;
+ 150:twi.c         **** 	}
+ 151:twi.c         **** 
+ 152:twi.c         **** 	for(i = 0; i < length; ++i)
+ 153:twi.c         **** 	{
+ 154:twi.c         **** 		data[i] = twi_masterBuffer[i];
+ 155:twi.c         **** 	}
+ 156:twi.c         **** 
+ 157:twi.c         **** 	return length;
+ 158:twi.c         **** }
+ 159:twi.c         **** 
+ 160:twi.c         **** static uint8_t twi_write_to
+ 161:twi.c         **** 	(uint8_t address, uint8_t *data, uint8_t length, uint8_t wait)
+ 162:twi.c         **** {
+ 163:twi.c         **** 	uint8_t i;
+ 164:twi.c         **** 
+ 165:twi.c         **** 	if(TWI_BUFFER_LENGTH < length)
+ 166:twi.c         **** 	{
+ 167:twi.c         **** 		return 1;
+ 150               	.LM26:
+ 151 005a 81E0      		ldi r24,lo8(1)
+ 165:twi.c         **** 	{
+ 153               	.LM27:
+ 154 005c 9132      		cpi r25,lo8(33)
+ 155 005e 00F4      		brsh .L7
+ 156               	.L8:
+ 168:twi.c         **** 	}
+ 169:twi.c         **** 
+ 170:twi.c         **** 	while(TWI_READY != twi_state) ;
+ 158               	.LM28:
+ 159 0060 8091 0000 		lds r24,twi_state
+ 161               	.LM29:
+ 162 0064 8111      		cpse r24,__zero_reg__
+ 163 0066 00C0      		rjmp .L8
+ 164               	.LBE13:
+ 165               	.LBE12:
+  70:twi.c         **** 	txBufferIndex = 0;
+ 167               	.LM30:
+ 168 0068 2091 0000 		lds r18,txAddress
+ 169               	.LBB16:
+ 170               	.LBB14:
+ 171:twi.c         **** 	twi_state = TWI_MTX;
+ 172               	.LM31:
+ 173 006c 32E0      		ldi r19,lo8(2)
+ 174 006e 3093 0000 		sts twi_state,r19
+ 172:twi.c         **** 	twi_error = 0xFF;
+ 176               	.LM32:
+ 177 0072 3FEF      		ldi r19,lo8(-1)
+ 178 0074 3093 0000 		sts twi_error,r19
+ 173:twi.c         **** 	twi_masterBufferIndex = 0;
+ 180               	.LM33:
+ 181 0078 1092 0000 		sts twi_masterBufferIndex,__zero_reg__
+ 174:twi.c         **** 	twi_masterBufferLength = length;
+ 183               	.LM34:
+ 184 007c 9093 0000 		sts twi_masterBufferLength,r25
+ 185 0080 40E0      		ldi r20,lo8(txBuffer)
+ 186 0082 50E0      		ldi r21,hi8(txBuffer)
+ 187 0084 A0E0      		ldi r26,lo8(twi_masterBuffer)
+ 188 0086 B0E0      		ldi r27,hi8(twi_masterBuffer)
+ 175:twi.c         **** 	for(i = 0; i < length; ++i)
+ 190               	.LM35:
+ 191 0088 FA01      		movw r30,r20
+ 192               	.L9:
+ 193 008a 3E2F      		mov r19,r30
+ 194 008c 341B      		sub r19,r20
+ 195 008e 3917      		cp r19,r25
+ 196 0090 00F0      		brlo .L10
+ 176:twi.c         **** 	{
+ 177:twi.c         **** 		twi_masterBuffer[i] = data[i];
+ 178:twi.c         **** 	}
+ 179:twi.c         **** 
+ 180:twi.c         **** 	twi_slarw = TW_WRITE;
+ 181:twi.c         **** 	twi_slarw |= address << 1;
+ 198               	.LM36:
+ 199 0092 30E0      		ldi r19,0
+ 200 0094 220F      		lsl r18
+ 201 0096 331F      		rol r19
+ 203               	.LM37:
+ 204 0098 2093 0000 		sts twi_slarw,r18
+ 182:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA) | (1 << TWINT) | 
+ 206               	.LM38:
+ 207 009c 95EE      		ldi r25,lo8(-27)
+ 208 009e 9093 BC00 		sts 188,r25
+ 209               	.L11:
+ 183:twi.c         **** 		(1 << TWSTA);
+ 184:twi.c         **** 
+ 185:twi.c         **** 	while(wait && (TWI_MTX == twi_state)) ;
+ 211               	.LM39:
+ 212 00a2 9091 0000 		lds r25,twi_state
+ 214               	.LM40:
+ 215 00a6 9230      		cpi r25,lo8(2)
+ 216 00a8 01F0      		breq .L11
+ 186:twi.c         **** 
+ 187:twi.c         **** 	if(twi_error == 0xFF)
+ 218               	.LM41:
+ 219 00aa 9091 0000 		lds r25,twi_error
+ 221               	.LM42:
+ 222 00ae 9F3F      		cpi r25,lo8(-1)
+ 223 00b0 01F0      		breq .L7
+ 188:twi.c         **** 	{
+ 189:twi.c         **** 		/* Success */
+ 190:twi.c         **** 		return 0;
+ 191:twi.c         **** 	}
+ 192:twi.c         **** 	else if(twi_error == TW_MT_SLA_NACK)
+ 225               	.LM43:
+ 226 00b2 8091 0000 		lds r24,twi_error
+ 228               	.LM44:
+ 229 00b6 8032      		cpi r24,lo8(32)
+ 230 00b8 01F0      		breq .L13
+ 193:twi.c         **** 	{
+ 194:twi.c         **** 		/* Error: Address sent, NACK received */
+ 195:twi.c         **** 		return 2;
+ 196:twi.c         **** 	}
+ 197:twi.c         **** 	else if(twi_error == TW_MT_DATA_NACK)
+ 232               	.LM45:
+ 233 00ba 8091 0000 		lds r24,twi_error
+ 235               	.LM46:
+ 236 00be 8033      		cpi r24,lo8(48)
+ 237 00c0 01F0      		breq .L14
+ 198:twi.c         **** 	{
+ 199:twi.c         **** 		/* Error: Data sent, NACK received */
+ 200:twi.c         **** 		return 3;
+ 201:twi.c         **** 	}
+ 202:twi.c         **** 	else
+ 203:twi.c         **** 	{
+ 204:twi.c         **** 		/* Other Error */
+ 205:twi.c         **** 		return 4;
+ 239               	.LM47:
+ 240 00c2 84E0      		ldi r24,lo8(4)
+ 241               	.L7:
+ 242               	.LBE14:
+ 243               	.LBE16:
+  71:twi.c         **** 	txBufferLength = 0;
+ 245               	.LM48:
+ 246 00c4 1092 0000 		sts txBufferIndex,__zero_reg__
+  72:twi.c         **** 	return ret;
+ 248               	.LM49:
+ 249 00c8 1092 0000 		sts txBufferLength,__zero_reg__
+ 250               	/* epilogue start */
+  74:twi.c         **** 
+ 252               	.LM50:
+ 253 00cc 0895      		ret
+ 254               	.L10:
+ 255               	.LBB17:
+ 256               	.LBB15:
+ 177:twi.c         **** 	}
+ 258               	.LM51:
+ 259 00ce 3191      		ld r19,Z+
+ 177:twi.c         **** 	}
+ 261               	.LM52:
+ 262 00d0 3D93      		st X+,r19
+ 263 00d2 00C0      		rjmp .L9
+ 264               	.L13:
+ 195:twi.c         **** 	}
+ 266               	.LM53:
+ 267 00d4 82E0      		ldi r24,lo8(2)
+ 268 00d6 00C0      		rjmp .L7
+ 269               	.L14:
+ 200:twi.c         **** 	}
+ 271               	.LM54:
+ 272 00d8 83E0      		ldi r24,lo8(3)
+ 273 00da 00C0      		rjmp .L7
+ 274               	.LBE15:
+ 275               	.LBE17:
+ 277               	.Lscope4:
+ 282               	.global	twi_request_from
+ 284               	twi_request_from:
+  77:twi.c         **** 	uint8_t read;
+ 286               	.LM55:
+ 287               	.LFBB5:
+ 288               	/* prologue: function */
+ 289               	/* frame size = 0 */
+ 290               	/* stack size = 0 */
+ 291               	.L__stack_usage = 0
+ 292 00dc 982F      		mov r25,r24
+ 293 00de 862F      		mov r24,r22
+ 294               	.L22:
+ 295               	.LBB20:
+ 296               	.LBB21:
+ 135:twi.c         **** 	twi_state = TWI_MRX;
+ 298               	.LM56:
+ 299 00e0 2091 0000 		lds r18,twi_state
+ 135:twi.c         **** 	twi_state = TWI_MRX;
+ 301               	.LM57:
+ 302 00e4 2111      		cpse r18,__zero_reg__
+ 303 00e6 00C0      		rjmp .L22
+ 304 00e8 8132      		cpi r24,lo8(33)
+ 305 00ea 00F0      		brlo .L23
+ 306 00ec 80E2      		ldi r24,lo8(32)
+ 307               	.L23:
+ 136:twi.c         **** 	twi_error = 0xFF;
+ 309               	.LM58:
+ 310 00ee 21E0      		ldi r18,lo8(1)
+ 311 00f0 2093 0000 		sts twi_state,r18
+ 137:twi.c         **** 	twi_masterBufferIndex = 0;
+ 313               	.LM59:
+ 314 00f4 2FEF      		ldi r18,lo8(-1)
+ 315 00f6 2093 0000 		sts twi_error,r18
+ 138:twi.c         **** 	twi_masterBufferLength = length - 1;
+ 317               	.LM60:
+ 318 00fa 1092 0000 		sts twi_masterBufferIndex,__zero_reg__
+ 139:twi.c         **** 	twi_slarw = TW_READ;
+ 320               	.LM61:
+ 321 00fe 280F      		add r18,r24
+ 139:twi.c         **** 	twi_slarw = TW_READ;
+ 323               	.LM62:
+ 324 0100 2093 0000 		sts twi_masterBufferLength,r18
+ 141:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA) | (1 << TWINT) |
+ 326               	.LM63:
+ 327 0104 990F      		lsl r25
+ 141:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA) | (1 << TWINT) |
+ 329               	.LM64:
+ 330 0106 9160      		ori r25,lo8(1)
+ 331 0108 9093 0000 		sts twi_slarw,r25
+ 142:twi.c         **** 		(1 << TWSTA);
+ 333               	.LM65:
+ 334 010c 95EE      		ldi r25,lo8(-27)
+ 335 010e 9093 BC00 		sts 188,r25
+ 336               	.L24:
+ 145:twi.c         **** 
+ 338               	.LM66:
+ 339 0112 9091 0000 		lds r25,twi_state
+ 145:twi.c         **** 
+ 341               	.LM67:
+ 342 0116 9130      		cpi r25,lo8(1)
+ 343 0118 01F0      		breq .L24
+ 147:twi.c         **** 	{
+ 345               	.LM68:
+ 346 011a 9091 0000 		lds r25,twi_masterBufferIndex
+ 147:twi.c         **** 	{
+ 348               	.LM69:
+ 349 011e 9817      		cp r25,r24
+ 350 0120 00F4      		brsh .L25
+ 149:twi.c         **** 	}
+ 352               	.LM70:
+ 353 0122 8091 0000 		lds r24,twi_masterBufferIndex
+ 354               	.L25:
+ 355 0126 20E0      		ldi r18,lo8(twi_masterBuffer)
+ 356 0128 30E0      		ldi r19,hi8(twi_masterBuffer)
+ 357 012a A0E0      		ldi r26,lo8(rxBuffer)
+ 358 012c B0E0      		ldi r27,hi8(rxBuffer)
+ 152:twi.c         **** 	{
+ 360               	.LM71:
+ 361 012e F901      		movw r30,r18
+ 362               	.L26:
+ 363 0130 9E2F      		mov r25,r30
+ 364 0132 921B      		sub r25,r18
+ 365 0134 9817      		cp r25,r24
+ 366 0136 00F0      		brlo .L27
+ 367               	.LBE21:
+ 368               	.LBE20:
+  85:twi.c         **** 	rxBufferLength = read;
+ 370               	.LM72:
+ 371 0138 1092 0000 		sts rxBufferIndex,__zero_reg__
+  86:twi.c         **** 	return read;
+ 373               	.LM73:
+ 374 013c 8093 0000 		sts rxBufferLength,r24
+ 375               	/* epilogue start */
+  88:twi.c         **** 
+ 377               	.LM74:
+ 378 0140 0895      		ret
+ 379               	.L27:
+ 380               	.LBB23:
+ 381               	.LBB22:
+ 154:twi.c         **** 	}
+ 383               	.LM75:
+ 384 0142 9191      		ld r25,Z+
+ 154:twi.c         **** 	}
+ 386               	.LM76:
+ 387 0144 9D93      		st X+,r25
+ 388 0146 00C0      		rjmp .L26
+ 389               	.LBE22:
+ 390               	.LBE23:
+ 398               	.Lscope5:
+ 402               	.global	twi_write
+ 404               	twi_write:
+  91:twi.c         **** 	if(txBufferLength >= TWI_BUFFER_LENGTH) { return; }
+ 406               	.LM77:
+ 407               	.LFBB6:
+ 408               	/* prologue: function */
+ 409               	/* frame size = 0 */
+ 410               	/* stack size = 0 */
+ 411               	.L__stack_usage = 0
+  92:twi.c         **** 	txBuffer[txBufferIndex++] = data;
+ 413               	.LM78:
+ 414 0148 9091 0000 		lds r25,txBufferLength
+ 415 014c 9032      		cpi r25,lo8(32)
+ 416 014e 00F4      		brsh .L31
+  93:twi.c         **** 	txBufferLength = txBufferIndex;
+ 418               	.LM79:
+ 419 0150 E091 0000 		lds r30,txBufferIndex
+ 420 0154 91E0      		ldi r25,lo8(1)
+ 421 0156 9E0F      		add r25,r30
+ 422 0158 9093 0000 		sts txBufferIndex,r25
+ 423 015c F0E0      		ldi r31,0
+  93:twi.c         **** 	txBufferLength = txBufferIndex;
+ 425               	.LM80:
+ 426 015e E050      		subi r30,lo8(-(txBuffer))
+ 427 0160 F040      		sbci r31,hi8(-(txBuffer))
+ 428 0162 8083      		st Z,r24
+  94:twi.c         **** }
+ 430               	.LM81:
+ 431 0164 9093 0000 		sts txBufferLength,r25
+ 432               	.L31:
+ 433               	/* epilogue start */
+  95:twi.c         **** 
+ 435               	.LM82:
+ 436 0168 0895      		ret
+ 438               	.Lscope6:
+ 441               	.global	twi_read
+ 443               	twi_read:
+  98:twi.c         **** 	return (rxBufferIndex < rxBufferLength)
+ 445               	.LM83:
+ 446               	.LFBB7:
+ 447               	/* prologue: function */
+ 448               	/* frame size = 0 */
+ 449               	/* stack size = 0 */
+ 450               	.L__stack_usage = 0
+  99:twi.c         **** 		? rxBuffer[rxBufferIndex++] : '\0';
+ 452               	.LM84:
+ 453 016a E091 0000 		lds r30,rxBufferIndex
+ 100:twi.c         **** }
+ 455               	.LM85:
+ 456 016e 8091 0000 		lds r24,rxBufferLength
+ 457 0172 E817      		cp r30,r24
+ 458 0174 00F4      		brsh .L35
+ 100:twi.c         **** }
+ 460               	.LM86:
+ 461 0176 81E0      		ldi r24,lo8(1)
+ 462 0178 8E0F      		add r24,r30
+ 463 017a 8093 0000 		sts rxBufferIndex,r24
+ 464 017e F0E0      		ldi r31,0
+ 100:twi.c         **** }
+ 466               	.LM87:
+ 467 0180 E050      		subi r30,lo8(-(rxBuffer))
+ 468 0182 F040      		sbci r31,hi8(-(rxBuffer))
+ 469 0184 8081      		ld r24,Z
+ 470 0186 0895      		ret
+ 471               	.L35:
+ 100:twi.c         **** }
+ 473               	.LM88:
+ 474 0188 80E0      		ldi r24,0
+ 475               	/* epilogue start */
+ 101:twi.c         **** 
+ 477               	.LM89:
+ 478 018a 0895      		ret
+ 480               	.Lscope7:
+ 483               	.global	twi_available
+ 485               	twi_available:
+ 104:twi.c         **** 	return rxBufferLength - rxBufferIndex;
+ 487               	.LM90:
+ 488               	.LFBB8:
+ 489               	/* prologue: function */
+ 490               	/* frame size = 0 */
+ 491               	/* stack size = 0 */
+ 492               	.L__stack_usage = 0
+ 105:twi.c         **** }
+ 494               	.LM91:
+ 495 018c 8091 0000 		lds r24,rxBufferLength
+ 496 0190 9091 0000 		lds r25,rxBufferIndex
+ 106:twi.c         **** 
+ 498               	.LM92:
+ 499 0194 891B      		sub r24,r25
+ 500               	/* epilogue start */
+ 501 0196 0895      		ret
+ 503               	.Lscope8:
+ 506               	.global	__vector_24
+ 508               	__vector_24:
+ 206:twi.c         **** 	}
+ 207:twi.c         **** }
+ 208:twi.c         **** 
+ 209:twi.c         **** static void twi_reply_ack(void)
+ 210:twi.c         **** {
+ 211:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWINT) | (1 << TWEA);
+ 212:twi.c         **** }
+ 213:twi.c         **** 
+ 214:twi.c         **** static void twi_reply_nack(void)
+ 215:twi.c         **** {
+ 216:twi.c         **** 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWINT);
+ 217:twi.c         **** }
+ 218:twi.c         **** 
+ 219:twi.c         **** 
+ 220:twi.c         **** SIGNAL(TWI_vect)
+ 221:twi.c         **** {
+ 510               	.LM93:
+ 511               	.LFBB9:
+ 512 0198 1F92      		push r1
+ 513 019a 0F92      		push r0
+ 514 019c 0FB6      		in r0,__SREG__
+ 515 019e 0F92      		push r0
+ 516 01a0 1124      		clr __zero_reg__
+ 517 01a2 2F93      		push r18
+ 518 01a4 3F93      		push r19
+ 519 01a6 4F93      		push r20
+ 520 01a8 5F93      		push r21
+ 521 01aa 6F93      		push r22
+ 522 01ac 7F93      		push r23
+ 523 01ae 8F93      		push r24
+ 524 01b0 9F93      		push r25
+ 525 01b2 AF93      		push r26
+ 526 01b4 BF93      		push r27
+ 527 01b6 EF93      		push r30
+ 528 01b8 FF93      		push r31
+ 529               	/* prologue: Signal */
+ 530               	/* frame size = 0 */
+ 531               	/* stack size = 15 */
+ 532               	.L__stack_usage = 15
+ 222:twi.c         **** 	switch(TW_STATUS)
+ 534               	.LM94:
+ 535 01ba 8091 B900 		lds r24,185
+ 536 01be 887F      		andi r24,lo8(-8)
+ 538               	.LM95:
+ 539 01c0 8833      		cpi r24,lo8(56)
+ 540 01c2 01F4      		brne .+2
+ 541 01c4 00C0      		rjmp .L38
+ 542 01c6 00F4      		brsh .L39
+ 543 01c8 8032      		cpi r24,lo8(32)
+ 544 01ca 01F0      		breq .L47
+ 545 01cc 00F4      		brsh .L41
+ 546 01ce 8830      		cpi r24,lo8(8)
+ 547 01d0 01F4      		brne .+2
+ 548 01d2 00C0      		rjmp .L42
+ 549 01d4 00F4      		brsh .L43
+ 550 01d6 8823      		tst r24
+ 551 01d8 01F4      		brne .+2
+ 552 01da 00C0      		rjmp .L44
+ 553               	.L37:
+ 554               	/* epilogue start */
+ 223:twi.c         **** 	{
+ 224:twi.c         **** 		/* All master */
+ 225:twi.c         **** 		case TW_START:
+ 226:twi.c         **** 			/* Sent start condition */
+ 227:twi.c         **** 
+ 228:twi.c         **** 		case TW_REP_START:
+ 229:twi.c         **** 			/* Sent repeated start condition */
+ 230:twi.c         **** 			TWDR = twi_slarw;
+ 231:twi.c         **** 			twi_reply_ack();
+ 232:twi.c         **** 			break;
+ 233:twi.c         **** 
+ 234:twi.c         **** 		/* Master transmitter */
+ 235:twi.c         **** 		case TW_MT_SLA_ACK:
+ 236:twi.c         **** 			/* Slave receiver ACKed address */
+ 237:twi.c         **** 
+ 238:twi.c         **** 		case TW_MT_DATA_ACK:
+ 239:twi.c         **** 			/* Slave receiver ACKed data */
+ 240:twi.c         **** 			if(twi_masterBufferIndex < twi_masterBufferLength)
+ 241:twi.c         **** 			{
+ 242:twi.c         **** 				TWDR = twi_masterBuffer[twi_masterBufferIndex++];
+ 243:twi.c         **** 				twi_reply_ack();
+ 244:twi.c         **** 			}
+ 245:twi.c         **** 			else
+ 246:twi.c         **** 			{
+ 247:twi.c         **** 				twi_stop();
+ 248:twi.c         **** 			}
+ 249:twi.c         **** 			break;
+ 250:twi.c         **** 
+ 251:twi.c         **** 		case TW_MT_SLA_NACK:
+ 252:twi.c         **** 			/* Address sent, NACK received */
+ 253:twi.c         **** 			twi_error = TW_MT_SLA_NACK;
+ 254:twi.c         **** 			twi_stop();
+ 255:twi.c         **** 			break;
+ 256:twi.c         **** 
+ 257:twi.c         **** 		case TW_MT_DATA_NACK:
+ 258:twi.c         **** 			/* Data sent, NACK received */
+ 259:twi.c         **** 			twi_error = TW_MT_DATA_NACK;
+ 260:twi.c         **** 			twi_stop();
+ 261:twi.c         **** 			break;
+ 262:twi.c         **** 
+ 263:twi.c         **** 		case TW_MT_ARB_LOST:
+ 264:twi.c         **** 			/* Bus arbitration lost */
+ 265:twi.c         **** 			twi_error = TW_MT_ARB_LOST;
+ 266:twi.c         **** 			twi_release_bus();
+ 267:twi.c         **** 			break;
+ 268:twi.c         **** 
+ 269:twi.c         **** 		/* Master receiver */
+ 270:twi.c         **** 		case TW_MR_DATA_ACK:
+ 271:twi.c         **** 			/* Data received, ACK sent */
+ 272:twi.c         **** 			twi_masterBuffer[twi_masterBufferIndex++] = TWDR;
+ 273:twi.c         **** 
+ 274:twi.c         **** 		case TW_MR_SLA_ACK:
+ 275:twi.c         **** 			/* Address sent, ACK received */
+ 276:twi.c         **** 			if(twi_masterBufferIndex < twi_masterBufferLength)
+ 277:twi.c         **** 			{
+ 278:twi.c         **** 				twi_reply_ack();
+ 279:twi.c         **** 			}
+ 280:twi.c         **** 			else
+ 281:twi.c         **** 			{
+ 282:twi.c         **** 				twi_reply_nack();
+ 283:twi.c         **** 			}
+ 284:twi.c         **** 			break;
+ 285:twi.c         **** 
+ 286:twi.c         **** 		case TW_MR_DATA_NACK:
+ 287:twi.c         **** 			/* Data received, NACK sent */
+ 288:twi.c         **** 			twi_masterBuffer[twi_masterBufferIndex++] = TWDR;
+ 289:twi.c         **** 
+ 290:twi.c         **** 		case TW_MR_SLA_NACK:
+ 291:twi.c         **** 			/* Address sent, NACK received */
+ 292:twi.c         **** 			twi_stop();
+ 293:twi.c         **** 			break;
+ 294:twi.c         **** 
+ 295:twi.c         **** 		/* All */
+ 296:twi.c         **** 		case TW_NO_INFO:
+ 297:twi.c         **** 			/* No state information */
+ 298:twi.c         **** 			break;
+ 299:twi.c         **** 
+ 300:twi.c         **** 		case TW_BUS_ERROR:
+ 301:twi.c         **** 			/* Bus error, illegal stop/start */
+ 302:twi.c         **** 			twi_error = TW_BUS_ERROR;
+ 303:twi.c         **** 			twi_stop();
+ 304:twi.c         **** 			break;
+ 305:twi.c         **** 	}
+ 306:twi.c         **** }
+ 556               	.LM96:
+ 557 01dc FF91      		pop r31
+ 558 01de EF91      		pop r30
+ 559 01e0 BF91      		pop r27
+ 560 01e2 AF91      		pop r26
+ 561 01e4 9F91      		pop r25
+ 562 01e6 8F91      		pop r24
+ 563 01e8 7F91      		pop r23
+ 564 01ea 6F91      		pop r22
+ 565 01ec 5F91      		pop r21
+ 566 01ee 4F91      		pop r20
+ 567 01f0 3F91      		pop r19
+ 568 01f2 2F91      		pop r18
+ 569 01f4 0F90      		pop r0
+ 570 01f6 0FBE      		out __SREG__,r0
+ 571 01f8 0F90      		pop r0
+ 572 01fa 1F90      		pop r1
+ 573 01fc 1895      		reti
+ 574               	.L43:
+ 222:twi.c         **** 	switch(TW_STATUS)
+ 576               	.LM97:
+ 577 01fe 8031      		cpi r24,lo8(16)
+ 578 0200 01F0      		breq .L42
+ 579 0202 8831      		cpi r24,lo8(24)
+ 580 0204 01F4      		brne .L37
+ 581               	.L46:
+ 240:twi.c         **** 			{
+ 583               	.LM98:
+ 584 0206 9091 0000 		lds r25,twi_masterBufferIndex
+ 240:twi.c         **** 			{
+ 586               	.LM99:
+ 587 020a 8091 0000 		lds r24,twi_masterBufferLength
+ 588 020e 9817      		cp r25,r24
+ 589 0210 00F4      		brsh .L74
+ 242:twi.c         **** 				twi_reply_ack();
+ 591               	.LM100:
+ 592 0212 E091 0000 		lds r30,twi_masterBufferIndex
+ 593 0216 81E0      		ldi r24,lo8(1)
+ 594 0218 8E0F      		add r24,r30
+ 595 021a 8093 0000 		sts twi_masterBufferIndex,r24
+ 596 021e F0E0      		ldi r31,0
+ 242:twi.c         **** 				twi_reply_ack();
+ 598               	.LM101:
+ 599 0220 E050      		subi r30,lo8(-(twi_masterBuffer))
+ 600 0222 F040      		sbci r31,hi8(-(twi_masterBuffer))
+ 601 0224 8081      		ld r24,Z
+ 602 0226 00C0      		rjmp .L76
+ 603               	.L41:
+ 222:twi.c         **** 	{
+ 605               	.LM102:
+ 606 0228 8832      		cpi r24,lo8(40)
+ 607 022a 01F0      		breq .L46
+ 608 022c 8033      		cpi r24,lo8(48)
+ 609 022e 01F4      		brne .L37
+ 610               	.L47:
+ 259:twi.c         **** 			twi_stop();
+ 612               	.LM103:
+ 613 0230 8093 0000 		sts twi_error,r24
+ 614 0234 00C0      		rjmp .L74
+ 615               	.L39:
+ 222:twi.c         **** 	{
+ 617               	.LM104:
+ 618 0236 8035      		cpi r24,lo8(80)
+ 619 0238 01F0      		breq .L48
+ 620 023a 00F4      		brsh .L49
+ 621 023c 8034      		cpi r24,lo8(64)
+ 622 023e 01F0      		breq .L50
+ 623 0240 8834      		cpi r24,lo8(72)
+ 624 0242 01F4      		brne .L37
+ 625               	.L74:
+ 303:twi.c         **** 			break;
+ 627               	.LM105:
+ 628 0244 0E94 0000 		call twi_stop
+ 630               	.LM106:
+ 631 0248 00C0      		rjmp .L37
+ 632               	.L49:
+ 222:twi.c         **** 	{
+ 634               	.LM107:
+ 635 024a 8835      		cpi r24,lo8(88)
+ 636 024c 01F4      		brne .L37
+ 288:twi.c         **** 
+ 638               	.LM108:
+ 639 024e E091 0000 		lds r30,twi_masterBufferIndex
+ 640 0252 81E0      		ldi r24,lo8(1)
+ 641 0254 8E0F      		add r24,r30
+ 642 0256 8093 0000 		sts twi_masterBufferIndex,r24
+ 288:twi.c         **** 
+ 644               	.LM109:
+ 645 025a 8091 BB00 		lds r24,187
+ 288:twi.c         **** 
+ 647               	.LM110:
+ 648 025e F0E0      		ldi r31,0
+ 288:twi.c         **** 
+ 650               	.LM111:
+ 651 0260 E050      		subi r30,lo8(-(twi_masterBuffer))
+ 652 0262 F040      		sbci r31,hi8(-(twi_masterBuffer))
+ 653 0264 8083      		st Z,r24
+ 654 0266 00C0      		rjmp .L74
+ 655               	.L42:
+ 230:twi.c         **** 			twi_reply_ack();
+ 657               	.LM112:
+ 658 0268 8091 0000 		lds r24,twi_slarw
+ 659               	.L76:
+ 242:twi.c         **** 				twi_reply_ack();
+ 661               	.LM113:
+ 662 026c 8093 BB00 		sts 187,r24
+ 663               	.L75:
+ 664               	.LBB34:
+ 665               	.LBB35:
+ 211:twi.c         **** }
+ 667               	.LM114:
+ 668 0270 85EC      		ldi r24,lo8(-59)
+ 669               	.L73:
+ 670               	.LBE35:
+ 671               	.LBE34:
+ 672               	.LBB36:
+ 673               	.LBB37:
+ 216:twi.c         **** }
+ 675               	.LM115:
+ 676 0272 8093 BC00 		sts 188,r24
+ 217:twi.c         **** 
+ 678               	.LM116:
+ 679 0276 00C0      		rjmp .L37
+ 680               	.L38:
+ 681               	.LBE37:
+ 682               	.LBE36:
+ 265:twi.c         **** 			twi_release_bus();
+ 684               	.LM117:
+ 685 0278 8093 0000 		sts twi_error,r24
+ 686               	.LBB39:
+ 687               	.LBB40:
+ 121:twi.c         **** 	twi_state = TWI_READY;
+ 689               	.LM118:
+ 690 027c 85EC      		ldi r24,lo8(-59)
+ 691 027e 8093 BC00 		sts 188,r24
+ 122:twi.c         **** }
+ 693               	.LM119:
+ 694 0282 1092 0000 		sts twi_state,__zero_reg__
+ 123:twi.c         **** 
+ 696               	.LM120:
+ 697 0286 00C0      		rjmp .L37
+ 698               	.L48:
+ 699               	.LBE40:
+ 700               	.LBE39:
+ 272:twi.c         **** 
+ 702               	.LM121:
+ 703 0288 E091 0000 		lds r30,twi_masterBufferIndex
+ 704 028c 81E0      		ldi r24,lo8(1)
+ 705 028e 8E0F      		add r24,r30
+ 706 0290 8093 0000 		sts twi_masterBufferIndex,r24
+ 272:twi.c         **** 
+ 708               	.LM122:
+ 709 0294 8091 BB00 		lds r24,187
+ 272:twi.c         **** 
+ 711               	.LM123:
+ 712 0298 F0E0      		ldi r31,0
+ 272:twi.c         **** 
+ 714               	.LM124:
+ 715 029a E050      		subi r30,lo8(-(twi_masterBuffer))
+ 716 029c F040      		sbci r31,hi8(-(twi_masterBuffer))
+ 717 029e 8083      		st Z,r24
+ 718               	.L50:
+ 276:twi.c         **** 			{
+ 720               	.LM125:
+ 721 02a0 9091 0000 		lds r25,twi_masterBufferIndex
+ 276:twi.c         **** 			{
+ 723               	.LM126:
+ 724 02a4 8091 0000 		lds r24,twi_masterBufferLength
+ 725 02a8 9817      		cp r25,r24
+ 726 02aa 00F0      		brlo .L75
+ 727               	.LBB41:
+ 728               	.LBB38:
+ 216:twi.c         **** }
+ 730               	.LM127:
+ 731 02ac 85E8      		ldi r24,lo8(-123)
+ 732 02ae 00C0      		rjmp .L73
+ 733               	.L44:
+ 734               	.LBE38:
+ 735               	.LBE41:
+ 302:twi.c         **** 			twi_stop();
+ 737               	.LM128:
+ 738 02b0 1092 0000 		sts twi_error,__zero_reg__
+ 739 02b4 00C0      		rjmp .L74
+ 741               	.Lscope9:
+ 743               		.local	txBufferLength
+ 744               		.comm	txBufferLength,1,1
+ 746               		.local	txBufferIndex
+ 747               		.comm	txBufferIndex,1,1
+ 749               		.local	txBuffer
+ 750               		.comm	txBuffer,32,1
+ 752               		.local	txAddress
+ 753               		.comm	txAddress,1,1
+ 755               		.local	rxBufferLength
+ 756               		.comm	rxBufferLength,1,1
+ 758               		.local	rxBufferIndex
+ 759               		.comm	rxBufferIndex,1,1
+ 761               		.local	rxBuffer
+ 762               		.comm	rxBuffer,32,1
+ 764               		.local	twi_masterBufferLength
+ 765               		.comm	twi_masterBufferLength,1,1
+ 767               		.local	twi_masterBufferIndex
+ 768               		.comm	twi_masterBufferIndex,1,1
+ 770               		.local	twi_masterBuffer
+ 771               		.comm	twi_masterBuffer,32,1
+ 773               		.local	twi_error
+ 774               		.comm	twi_error,1,1
+ 776               		.local	twi_slarw
+ 777               		.comm	twi_slarw,1,1
+ 779               		.local	twi_state
+ 780               		.comm	twi_state,1,1
+ 783               	.Letext0:
+ 784               		.ident	"GCC: (GNU) 10.2.0"
+ 785               	.global __do_clear_bss
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 twi.c
+     /tmp/ccrdikLi.s:2      *ABS*:000000000000003e __SP_H__
+     /tmp/ccrdikLi.s:3      *ABS*:000000000000003d __SP_L__
+     /tmp/ccrdikLi.s:4      *ABS*:000000000000003f __SREG__
+     /tmp/ccrdikLi.s:5      *ABS*:0000000000000000 __tmp_reg__
+     /tmp/ccrdikLi.s:6      *ABS*:0000000000000001 __zero_reg__
+     /tmp/ccrdikLi.s:17     .text:0000000000000000 twi_stop
+     /tmp/ccrdikLi.s:777    .bss:0000000000000069 twi_state
+     /tmp/ccrdikLi.s:50     .text:0000000000000014 twi_init
+     /tmp/ccrdikLi.s:756    .bss:0000000000000024 rxBufferIndex
+     /tmp/ccrdikLi.s:753    .bss:0000000000000023 rxBufferLength
+     /tmp/ccrdikLi.s:744    .bss:0000000000000001 txBufferIndex
+                             .bss:0000000000000000 txBufferLength
+     /tmp/ccrdikLi.s:109    .text:0000000000000048 twi_begin_transmission
+     /tmp/ccrdikLi.s:750    .bss:0000000000000022 txAddress
+     /tmp/ccrdikLi.s:136    .text:0000000000000056 twi_end_transmission
+     /tmp/ccrdikLi.s:771    .bss:0000000000000067 twi_error
+     /tmp/ccrdikLi.s:765    .bss:0000000000000046 twi_masterBufferIndex
+     /tmp/ccrdikLi.s:762    .bss:0000000000000045 twi_masterBufferLength
+     /tmp/ccrdikLi.s:747    .bss:0000000000000002 txBuffer
+     /tmp/ccrdikLi.s:768    .bss:0000000000000047 twi_masterBuffer
+     /tmp/ccrdikLi.s:774    .bss:0000000000000068 twi_slarw
+     /tmp/ccrdikLi.s:284    .text:00000000000000dc twi_request_from
+     /tmp/ccrdikLi.s:759    .bss:0000000000000025 rxBuffer
+     /tmp/ccrdikLi.s:404    .text:0000000000000148 twi_write
+     /tmp/ccrdikLi.s:443    .text:000000000000016a twi_read
+     /tmp/ccrdikLi.s:485    .text:000000000000018c twi_available
+     /tmp/ccrdikLi.s:508    .text:0000000000000198 __vector_24
+
+UNDEFINED SYMBOLS
+__do_clear_bss
